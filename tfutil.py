@@ -47,21 +47,53 @@ def createPSD(sound, fs):
 
 
 
-def truncatePSD(psdMatrix, threshold=2):
-    # Truncating all values above the threshold and normalize it over the [0:threshold]
+def truncatePSD(psdMatrix, threshold2=5):
+  # Scaling values in [0,1] to [0-220], (1,5] to [220,255],
+  # and values greater than 5 will be assigned to 255
+  # The result is a truncated-scaled matrix of the original matrix
 
-    maxPixelValue = 255   #uint8 
-    
-    truncNormPSD = psdMatrix;
-    truncNormPSD[psdMatrix>threshold] = threshold
-    truncNormPSD = truncNormPSD/threshold*maxPixelValue
-    
-    return truncNormPSD
+  threshold1 = 1
+  lowPixelValue = 220
+
+  #threshold2 = 5
+  highPixelValue = 255   #uint8 
+
+  
+  psdMatrix = np.asarray(psdMatrix)
+  nrow,ncol = psdMatrix.shape
+  truncNormPSD = np.zeros((nrow, ncol))
+  # Checking if the value is below thresold1 and perform scaling
+  # Masking is used to identify the elements that satisfies the criteria
+  mask1 = np.zeros((nrow, ncol))
+  mask1[psdMatrix<threshold1] = 1
+  tmp1 = psdMatrix/threshold1*lowPixelValue
+  # mask1 indicates elements that were originally less than threshold1
+  tmp1 = np.multiply(tmp1,mask1) 
+  truncNormPSD = tmp1
+
+  # Checking if the values are above threshold 2
+  mask2 = np.zeros((nrow,ncol))
+  truncNormPSD[psdMatrix>threshold2] = 255
+  mask2[psdMatrix>threshold2] = 1
+
+  # The rest of the numbers that between threshold1 and threshold2 will be scaled
+  mask3 = np.ones((nrow,ncol))
+  mask3 = mask3-mask1-mask2 #The rest of the elements that fall between threshold1-threshold2
+  tmp2 = np.zeros((nrow,ncol))
+  tmp2 = (psdMatrix-threshold1)/(threshold2-threshold1)*(highPixelValue-lowPixelValue)+lowPixelValue
+  tmp2 = np.multiply(tmp2,mask3)
+
+  truncNormPSD=truncNormPSD+tmp2
+  #truncNormPSD = truncNormPSD/threshold*maxPixelValue
+  
+  return truncNormPSD
 
 
 
 def groupTimePSD(psdMatrix, N=5):
-    # Grouping N time-vectors together into one timeslot
+    # Squeezing N time-vectors together into one timeslot
+    # The result values are the sum of the N vectors
+    # The returning matrix time-column is reduced by N
 
     nrow, ncol = psdMatrix.shape
     numslots = int(np.floor(ncol/N))
@@ -75,27 +107,31 @@ def groupTimePSD(psdMatrix, N=5):
 
 
 
-def groupFreqPSD(psdMatrix, Nupper=5, Nlower=2, lowerbins=50):
-    '''
-    Grouping N Frequency-vectors together into one frequency bin
-    NOTE: Equal bin distance does not work well for low frequencies. 
-    New changes: only grouping bins above index 50 for every 5 bins 
-                 and 2 bins for lower index
-    '''
-    
-    nrow, ncol = psdMatrix.shape
-    numupperbins = int(np.floor((nrow-lowerbins)/Nupper))
-    numlowerbins = int(np.floor(lowerbins/2))
-    freqFramedPSD = np.zeros([numupperbins+numlowerbins,ncol])
 
-    for i in range(numlowerbins):
-        freqFramedPSD[i] = psdMatrix[Nlower*i] +psdMatrix[Nlower*i+1]
-    
-    for i in range(numupperbins):
-        startbin=i*Nupper+numlowerbins
-        stopbin = (i+1)*Nupper+numlowerbins
-        tmp = psdMatrix[startbin:stopbin]
-        freqFramedPSD[i+numlowerbins,:]=np.sum(tmp,axis=0)
-    
-    return freqFramedPSD
+def groupFreqPSD(psdMatrix, Nupper=5):
+  # Squeezing the frequency bins into one according to the frequency band
+  # Frequency bins in the lowerbin will be squeezed from 2 into 1
+  # Frequency bins in the upperbins will be squeezed from Nupper into 1
+  # The returning matrix freq-row is reduced by about 4
+  
+  lowerbins = 50;
+  Nlower = 2
 
+  nrow, ncol = psdMatrix.shape
+  
+  # Define the size of new dimension with the frequency squeezing
+  numupperbins = int(np.floor((nrow-lowerbins)/Nupper))
+  numlowerbins = int(np.floor(lowerbins/2))
+  freqFramedPSD = np.zeros([numupperbins+numlowerbins,ncol])
+
+  # Squeezing the lower frequency bins
+  for i in range(numlowerbins):
+    freqFramedPSD[i] = psdMatrix[Nlower*i] +psdMatrix[Nlower*i+1]
+
+  # Squeezing the upper frequency bins
+  for i in range(numupperbins):
+    startbin=i*Nupper+numlowerbins
+    stopbin = (i+1)*Nupper+numlowerbins
+    tmp = psdMatrix[startbin:stopbin]
+    freqFramedPSD[i+numlowerbins,:]=np.sum(tmp,axis=0)
+  return freqFramedPSD
